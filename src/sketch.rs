@@ -137,21 +137,13 @@ mod tests {
 
             for pct in (0..=100).step_by(10) {
                 let q = pct as f32 / 100.0;
-                let target_rank = (items.len() - 1) as f32 * q;
-                println!("n: {}, pct: {}, q: {}, targrank: {}", items.len(), pct, q, target_rank);
-                let target_rank_floor = target_rank.floor();
-                let value = if target_rank_floor == target_rank {
-                    sorted[target_rank_floor as usize]
-                } else {
-                    // TODO this doesn't pass yet but implementation appears to be correct
-                    // Check how paper defines quantile
-                    let target_rank_ceil = target_rank.ceil();
-                    let below = sorted[target_rank_floor as usize];
-                    let above = sorted[target_rank_ceil as usize];
-                    let interp = (target_rank - target_rank_floor) / (target_rank_ceil - target_rank_floor);
-                    println!("floor: {}, ceil: {}, interp: {}", target_rank_floor, target_rank_ceil, interp);
-                    (above - below) * interp
-                };
+                // value such that pct% of values are <= it
+
+                let target_index = (items.len() - 1) as f32 * q;
+                println!("n: {}, pct: {}, q: {}, targrank: {}", items.len(), pct, q, target_index);
+                let target_index_floor = target_index.floor() as usize;
+                println!("floor: {}", target_index_floor);
+                let value = sorted[target_index_floor];
 
                 let estimate = s.quantile(q);
                 println!("value: {}, estimate: {}", value, estimate);

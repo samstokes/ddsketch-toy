@@ -5,3 +5,4 @@
 # It is recommended to check this file in to source control so that
 # everyone who runs the test benefits from these saved cases.
 cc 105f08a5a9090a262e648d1b8ad5c09966e6e79f54a852b16b3f27980e299c6b # shrinks to items = []
+cc 8b71ae9fe1e26f67fd563c94fc713b97dedeb19e7a02a129052309ebe3c0d7fa # shrinks to items = [89994810.0]
