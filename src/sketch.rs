@@ -3,13 +3,14 @@ use std::collections::BTreeMap;
 #[cfg(test)]
 use proptest::collection::vec;
 #[cfg(test)]
-use proptest::{prop_assert_eq, proptest};
+use proptest::{prop_assert, prop_assert_eq, proptest};
 
 pub struct Sketch {
     // alpha: f32, // TODO
     gamma: f32,
     log2_gamma_inv: f32,
     two_over_gamma_plus_1: f32,
+    num_values: usize,
     // TODO i16 probably insufficient range for f32
     buckets: BTreeMap<i16, usize>,
 }
@@ -23,6 +24,7 @@ impl Sketch {
             gamma,
             log2_gamma_inv: 1.0 / gamma.log2(),
             two_over_gamma_plus_1: 2.0 / (gamma + 1.0),
+            num_values: 0,
             buckets,
         }
     }
@@ -35,27 +37,44 @@ impl Sketch {
         // this may behave strangely for item within EPSILON of 0, TODO check and maybe handle specially
         // (in particular 0 -> INT_MIN and -0 -> INT_MAX)
         let i = (item.log2() * self.log2_gamma_inv).ceil() as i16;
+        println!("item {} -> bucket {}", item, i);
         if let Some(count) = self.buckets.get_mut(&i) {
             *count += 1;
         } else {
             self.buckets.insert(i, 1);
         }
+        self.num_values += 1;
     }
 
     pub fn size(&self) -> usize {
+        self.num_values
+    }
+
+    #[cfg(test)]
+    fn bucket_sum(&self) -> usize {
         self.buckets.values().sum()
     }
 
     pub fn quantile(&self, q: f32) -> f32 {
         assert!(q >= 0.0 && q <= 1.0);
         assert!(!self.buckets.is_empty());
-        // TODO rewrite this nicely using iters
-        let (&i_0, &count_0) = self.buckets.first_key_value().unwrap();
 
-        // TODO handle q > 0
-        assert_eq!(0.0, q);
+        let mut buckets = self.buckets.iter();
 
-        self.two_over_gamma_plus_1 * self.gamma.powi(i_0 as i32)
+        // TODO rewrite this nicely using a reduce or something
+        let (&i_0, &count_0) = buckets.next().unwrap();
+        println!("i_0: {}, count_0: {}", i_0, count_0);
+
+        let target_rank = q * (self.num_values - 1) as f32;
+        println!("q: {}, target_rank: {}", q, target_rank);
+        let (mut i, mut count) = (i_0, count_0);
+        while count as f32 <= target_rank {
+            let (&i_next, &count_next) = buckets.next().expect("ran out of buckets early");
+            (i, count) = (i_next, count + count_next);
+            println!("i: {}, count: {}", i, count);
+        }
+
+        self.two_over_gamma_plus_1 * self.gamma.powi(i as i32)
     }
 }
 
@@ -105,13 +124,39 @@ mod tests {
     proptest! {
         // TODO would like to test with larger arrays but it takes minutes to execute
         #[test]
-        fn has_size(items in vec(0.0f32..1e8, 0..10)) {
+        fn non_negative_items(items in vec(0.0_f32..1e8, 1..10)) {
             let mut s = Sketch::new(TEST_GAMMA);
             for &item in &items {
                 s.insert(item);
             }
-            // TODO generate variable arrays of values instead of 1
             prop_assert_eq!(items.len(), s.size());
+            prop_assert_eq!(s.bucket_sum(), s.size());
+
+            let mut sorted = items.clone();
+            sorted.sort_unstable_by(f32::total_cmp);
+
+            for pct in (0..=100).step_by(10) {
+                let q = pct as f32 / 100.0;
+                let target_rank = (items.len() - 1) as f32 * q;
+                println!("n: {}, pct: {}, q: {}, targrank: {}", items.len(), pct, q, target_rank);
+                let target_rank_floor = target_rank.floor();
+                let value = if target_rank_floor == target_rank {
+                    sorted[target_rank_floor as usize]
+                } else {
+                    // TODO this doesn't pass yet but implementation appears to be correct
+                    // Check how paper defines quantile
+                    let target_rank_ceil = target_rank.ceil();
+                    let below = sorted[target_rank_floor as usize];
+                    let above = sorted[target_rank_ceil as usize];
+                    let interp = (target_rank - target_rank_floor) / (target_rank_ceil - target_rank_floor);
+                    println!("floor: {}, ceil: {}, interp: {}", target_rank_floor, target_rank_ceil, interp);
+                    (above - below) * interp
+                };
+
+                let estimate = s.quantile(q);
+                println!("value: {}, estimate: {}", value, estimate);
+                prop_assert!(close(value, estimate));
+            }
         }
     }
 }
